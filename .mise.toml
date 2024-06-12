@@ -1,0 +1,7 @@
+[tools]
+awscli = "latest"
+node = "latest"
+
+[env]
+_.path="node_modules/.bin/"
+
