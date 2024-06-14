@@ -1,5 +1,9 @@
 # aws-cost-notifier
 
+```bash
+aws ssm put-parameter --name "/my-app/slack-webhook-url" --value "https://hooks.slack.com/services/XXXXX/YYYYY/ZZZZZ" --type SecureString
+```
+
 ## Useful commands
 
 * `npm run build`   compile typescript to js
