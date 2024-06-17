@@ -5,10 +5,11 @@ import { aws_lambda as lambda,
          aws_iam as iam,
          aws_events as events,
          aws_events_targets as targets,
-         aws_ssm as ssm } from 'aws-cdk-lib';
+         aws_ssm as ssm,
+         aws_chatbot as chatbot } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as path from 'path';
-import { SLACK_WEBHOOK_URL_KEY } from '../config';
+import { settings } from '../config';
 
 export class AwsCostNotifierStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -19,11 +20,12 @@ export class AwsCostNotifierStack extends cdk.Stack {
       displayName: 'AWS Cost Notification Topic',
     });
 
-    const slackWebhookUrl = ssm.StringParameter.valueForStringParameter(this, SLACK_WEBHOOK_URL_KEY);
-
-    snsTopic.addSubscription(new sns_subscriptions.UrlSubscription(slackWebhookUrl, {
-      protocol: sns.SubscriptionProtocol.HTTPS
-    }));
+    new chatbot.SlackChannelConfiguration(this, 'SlackChannel', {
+      slackChannelConfigurationName: 'CostNotifierChannel',
+      slackWorkspaceId: ssm.StringParameter.valueForStringParameter(this, settings.slack_workspace_id_key),
+      slackChannelId: ssm.StringParameter.valueForStringParameter(this, settings.slack_channel_id_key),
+      notificationTopics: [snsTopic],
+    });
 
     // Lambda
     const costNotifierLambda = new lambda.Function(this, 'CostNotifierLambda', {
@@ -48,7 +50,7 @@ export class AwsCostNotifierStack extends cdk.Stack {
 
     // EventBridge
     const rule = new events.Rule(this, 'Rule', {
-      schedule: events.Schedule.cron({ minute: '0', hour: '0', day: 'SUN', month: '*', year: '*' }),
+      schedule: events.Schedule.cron({ minute: '0', hour: '0', day: '5,10,15,20,25,30', month: '*', year: '*' }),
     });
 
     rule.addTarget(new targets.LambdaFunction(costNotifierLambda));

@@ -1,2 +1,6 @@
-export const SLACK_WEBHOOK_URL_KEY = '/project/aws-cost-notifier/slack-webhook-url';
+
+export const settings = {
+  slack_channel_id_key: '/project/aws-cost-notifier/slack-channel-id',
+  slack_workspace_id_key: '/project/aws-cost-notifier/slack-workspace-id'
+};
 
