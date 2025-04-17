@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import {
+  aws_ssm as ssm,
   aws_sns as sns,
   aws_chatbot as chatbot,
   aws_logs as logs,
@@ -10,38 +11,49 @@ import {
   aws_events_targets as events_targets,
 } from 'aws-cdk-lib';
 import * as path from 'path';
+import { projectConfig, mainStackConfig } from '../config/config';
 
 export class MainStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // Notification
+    // Notifier
     const topic = new sns.Topic(this, 'topic', {
-      topicName: 'aws-cost-notifier-topic',
+      topicName: `${projectConfig.name}-topic`,
     });
 
     const chatbotRole = new iam.Role(this, 'chatbot-role', {
-      roleName: 'aws-cost-notifier-chatbot-role',
+      roleName: `${projectConfig.name}-chatbot-role`,
       assumedBy: new iam.ServicePrincipal('chatbot.amazonaws.com'),
     });
 
+    const slackWorkspaceId = ssm.StringParameter.valueForStringParameter(
+      this,
+      mainStackConfig.slackWorkspaceIdParameterName
+    );
+
+    const slackChannelId = ssm.StringParameter.valueForStringParameter(
+      this,
+      mainStackConfig.slackChannelIdParameterName
+    );
+
     const slackChannelConfiguration = new chatbot.SlackChannelConfiguration(this, 'slack-channel-configuration', {
-      slackChannelConfigurationName: 'aws-cost-notifier-slack-channel-configuration',
-      slackWorkspaceId: 'T0000000000',
-      slackChannelId: 'C0000000000',
+      slackChannelConfigurationName: `${projectConfig.name}-slack-channel-configuration`,
+      slackWorkspaceId: slackWorkspaceId,
+      slackChannelId: slackChannelId,
       notificationTopics: [topic],
       role: chatbotRole,
     });
 
     // Processor
     const logGroup = new logs.LogGroup(this, 'lambda-log-group', {
-      logGroupName: '/aws/lambda/aws-cost-notifier-lambda',
+      logGroupName: `/aws/lambda/${projectConfig.name}-lambda`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       retention: logs.RetentionDays.THREE_MONTHS,
     });
 
     const lambdaRole = new iam.Role(this, 'lambda-role', {
-      roleName: 'aws-cost-notifier-lambda-role',
+      roleName: `${projectConfig.name}-lambda-role`,
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
@@ -62,7 +74,7 @@ export class MainStack extends cdk.Stack {
 
     const lambdaFunction = new lambda.Function(this, 'lambda', {
       runtime: lambda.Runtime.PYTHON_3_12,
-      functionName: 'aws-cost-notifier-lambda',
+      functionName: `${projectConfig.name}-lambda`,
       code: lambda.Code.fromAsset(path.join(__dirname, '../lambda')),
       handler: 'lambda.lambda_handler',
       environment: {
@@ -76,7 +88,7 @@ export class MainStack extends cdk.Stack {
 
     // Trigger
     const rule = new events.Rule(this, 'trigger', {
-      ruleName: 'aws-cost-notifier-trigger',
+      ruleName: `${projectConfig.name}-trigger`,
       schedule: events.Schedule.cron({
         minute: '0',
         hour: '0',
@@ -90,3 +102,4 @@ export class MainStack extends cdk.Stack {
 
   }
 }
+
