@@ -3,9 +3,13 @@ import json
 import os
 from datetime import datetime, timedelta
 import logging
+from collections import defaultdict
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# サービスコストで 0.01 未満のものは Other として集計
+COST_THRESHOLD = 0.01
 
 ce_client = boto3.client('ce')
 sns_client = boto3.client('sns')
@@ -45,6 +49,34 @@ def get_monthly_costs(start_date, end_date):
 
     return monthly_costs
 
+def format_service_costs(service_costs):
+    # Taxを分離
+    tax_cost = service_costs.pop('Tax', 0)
+    
+    # その他のサービスを集計
+    other_services = defaultdict(float)
+    for service, cost in list(service_costs.items()):
+        if cost < COST_THRESHOLD:
+            other_services['Other'] += cost
+            service_costs.pop(service)
+    
+    # コストの高い順にソート
+    sorted_services = sorted(
+        service_costs.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+    
+    # Otherのコストを追加
+    if other_services['Other'] > 0:
+        sorted_services.append(('Other', other_services['Other']))
+    
+    # Taxを最後に追加
+    if tax_cost > 0:
+        sorted_services.append(('Tax', tax_cost))
+    
+    return sorted_services
+
 def publish_to_sns(monthly_costs, sns_topic_arn):
     # 最新の2ヶ月分のデータを取得
     months = sorted(monthly_costs.keys(), reverse=True)[:2]
@@ -58,9 +90,12 @@ def publish_to_sns(monthly_costs, sns_topic_arn):
     current_month_data = monthly_costs[current_month]
     last_month_data = monthly_costs[last_month]
 
+    # サービス別のコストを整形
+    formatted_services = format_service_costs(current_month_data['service_costs'])
+    
     service_costs_message = "\n".join([
         f"- {service}: {cost:.2f} USD"
-        for service, cost in current_month_data['service_costs'].items()
+        for service, cost in formatted_services
     ])
 
     message = {
