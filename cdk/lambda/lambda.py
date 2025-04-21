@@ -1,8 +1,8 @@
 import boto3
 import json
 import os
-from datetime import datetime, timedelta
 import logging
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 logger = logging.getLogger()
@@ -10,6 +10,8 @@ logger.setLevel(logging.INFO)
 
 # サービスコストで 0.01 未満のものは Other として集計
 COST_THRESHOLD = 0.01
+# 当月に加えて過去 1 ヶ月分のデータを取得
+PAST_MONTHS = 1
 
 ce_client = boto3.client('ce')
 sns_client = boto3.client('sns')
@@ -78,23 +80,27 @@ def format_service_costs(service_costs):
     return sorted_services
 
 def publish_to_sns(monthly_costs, sns_topic_arn):
-    # 最新の2ヶ月分のデータを取得
-    months = sorted(monthly_costs.keys(), reverse=True)[:2]
-    if len(months) < 2:
-        logger.error("2ヶ月分のデータがありません")
+    months = sorted(monthly_costs.keys(), reverse=True)[:PAST_MONTHS + 1]
+
+    # PAST_MONTHS + 1 ヶ月分のデータがあるか確認
+    if len(months) < PAST_MONTHS + 1:
+        logger.error(f"{PAST_MONTHS + 1}ヶ月分のデータがありません")
         return
 
     current_month = months[0]
-    last_month = months[1]
-
     current_month_data = monthly_costs[current_month]
-    last_month_data = monthly_costs[last_month]
 
     # サービス別のコストを整形
     formatted_services = format_service_costs(current_month_data['service_costs'])
     
+    # 過去 PAST_MONTHS ヶ月分のコストを表示
+    monthly_costs_message = "\n".join([
+        f"{month[:4]}年{month[5:7]}月の利用料 : {monthly_costs[month]['total_cost']:.2f} USD"
+        for month in months
+    ])
+
     service_costs_message = "\n".join([
-        f"- {service}: {cost:.2f} USD"
+        f"- {service} : {cost:.2f} USD"
         for service, cost in formatted_services
     ])
 
@@ -104,8 +110,7 @@ def publish_to_sns(monthly_costs, sns_topic_arn):
         'content': {
             'title': 'AWS Cost Notification',
             'description': (
-                f"先月の利用料: {last_month_data['total_cost']:.2f} USD\n"
-                f"今月の利用料: {current_month_data['total_cost']:.2f} USD\n"
+                f"{monthly_costs_message}\n"
                 f"{service_costs_message}"
             )
         }
@@ -122,10 +127,11 @@ def publish_to_sns(monthly_costs, sns_topic_arn):
 def lambda_handler(event, context):
     sns_topic_arn = os.environ['SNS_TOPIC_ARN']
 
-    # 集計期間の計算
-    term_end = datetime.utcnow().date()
-    current_month_start = term_end.replace(day=1)
-    term_start = (current_month_start - timedelta(days=1)).replace(day=1)
+    # 集計期間の計算 ( 当月 + 過去 PAST_MONTHS ヶ月 )
+    term_end = datetime.now(timezone.utc).date()
+    term_start = term_end.replace(day=1)
+    for _ in range(PAST_MONTHS):
+        term_start = (term_start - timedelta(days=1)).replace(day=1)
 
     logger.info(f"集計期間: {term_start} から {term_end}")
 
